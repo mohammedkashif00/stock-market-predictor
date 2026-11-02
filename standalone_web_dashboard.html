@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QuantPulse | Standalone Share Market Predictor & Charting App</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --purple: #a855f7;
+      --green: #10b981;
+      --red: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 24px; }
+    .container { max-width: 1280px; margin: 0 auto; }
+    header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+    h1 { font-size: 1.5rem; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+    .controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    select, input, button {
+      background: var(--card); color: var(--text); border: 1px solid var(--border);
+      padding: 10px 14px; border-radius: 8px; font-size: 0.9rem;
+    }
+    button { background: var(--accent); color: #0f172a; font-weight: 600; cursor: pointer; border: none; transition: opacity 0.2s; }
+    button:hover { opacity: 0.9; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .kpi-card { background: var(--card); border: 1px solid var(--border); padding: 18px; border-radius: 12px; }
+    .kpi-label { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+    .kpi-value { font-size: 1.5rem; font-weight: 700; }
+    .kpi-sub { font-size: 0.85rem; margin-top: 4px; }
+    .pos { color: var(--green); }
+    .neg { color: var(--red); }
+    .main-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+    @media (max-width: 960px) { .main-grid { grid-template-columns: 1fr; } }
+    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+    .panel h2 { font-size: 1.05rem; margin-bottom: 16px; color: var(--text); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; }
+    .disclaimer { margin-top: 24px; font-size: 0.8rem; color: var(--muted); text-align: center; }
+    .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; font-weight: 600; }
+    .badge-bull { background: rgba(16, 185, 129, 0.15); color: var(--green); }
+    .badge-bear { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>📈 QuantPulse Market Predictor (Standalone Web App)</h1>
+        <p style="color: var(--muted); font-size: 0.85rem; margin-top: 4px;">Interactive Technical Indicators + Time-Series Linear & Momentum Regression Engine</p>
+      </div>
+      <div class="controls">
+        <select id="stockSelect">
+          <option value="RELIANCE.NS">Reliance Industries (NSE)</option>
+          <option value="TCS.NS">TCS (NSE)</option>
+          <option value="HDFCBANK.NS">HDFC Bank (NSE)</option>
+          <option value="AAPL">Apple Inc. (NASDAQ)</option>
+          <option value="NVDA">NVIDIA Corp. (NASDAQ)</option>
+          <option value="MSFT">Microsoft (NASDAQ)</option>
+        </select>
+        <select id="horizonSelect">
+          <option value="7">7-Day Forecast</option>
+          <option value="14" selected>14-Day Forecast</option>
+          <option value="21">21-Day Forecast</option>
+        </select>
+        <label style="font-size: 0.85rem; color: var(--muted);">
+          Upload CSV (Optional):
+          <input type="file" id="csvUpload" accept=".csv" style="padding: 5px; width: 180px;" />
+        </label>
+        <button id="runBtn">Run Forecast</button>
+      </div>
+    </header>
+
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Latest Close</div>
+        <div class="kpi-value" id="kpiClose">--</div>
+        <div class="kpi-sub" id="kpiChange">--</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Projected Target</div>
+        <div class="kpi-value" id="kpiTarget">--</div>
+        <div class="kpi-sub" id="kpiTargetPct">--</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">14-Day RSI</div>
+        <div class="kpi-value" id="kpiRsi">--</div>
+        <div class="kpi-sub" id="kpiRsiState">--</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Trend Signal (SMA20 / SMA50)</div>
+        <div class="kpi-value" id="kpiSignal">--</div>
+        <div class="kpi-sub" id="kpiVol">--</div>
+      </div>
+    </div>
+
+    <div class="main-grid">
+      <div class="panel">
+        <h2>Historical Close, 20-Day SMA & Regression Forecast Band</h2>
+        <canvas id="priceChart" height="145"></canvas>
+      </div>
+      <div class="panel">
+        <h2>Projected Price Schedule</h2>
+        <div style="max-height: 380px; overflow-y: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Projected</th>
+                <th>Range (±1.5σ)</th>
+              </tr>
+            </thead>
+            <tbody id="forecastTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <p class="disclaimer">
+      ⚠️ Educational & Quantitative Demonstration: Stock market predictions are probabilistic estimates based on historical momentum and linear regression. Never trade real capital based solely on automated forecasts.
+    </p>
+  </div>
+
+  <script>
+    const baseSeeds = {
+      "RELIANCE.NS": { start: 1280, drift: 0.0008, vol: 0.014, currency: "₹" },
+      "TCS.NS":      { start: 4120, drift: 0.0006, vol: 0.012, currency: "₹" },
+      "HDFCBANK.NS": { start: 1740, drift: 0.0005, vol: 0.011, currency: "₹" },
+      "AAPL":        { start: 228,  drift: 0.0009, vol: 0.015, currency: "$" },
+      "NVDA":        { start: 138,  drift: 0.0016, vol: 0.024, currency: "$" },
+      "MSFT":        { start: 445,  drift: 0.0007, vol: 0.013, currency: "$" }
+    };
+
+    let chartInstance = null;
+    let customData = null;
+
+    function generateHistoricalSeries(symbol, days = 120) {
+      const cfg = baseSeeds[symbol] || { start: 100, drift: 0.0005, vol: 0.015, currency: "$" };
+      let price = cfg.start;
+      const dates = [];
+      const prices = [];
+      const now = new Date();
+
+      // Deterministic pseudo-random generator per ticker so results are consistent
+      let seed = symbol.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      function randNormal() {
+        seed = (seed * 16807) % 2147483647;
+        const u1 = (seed - 1) / 2147483646;
+        seed = (seed * 16807) % 2147483647;
+        const u2 = (seed - 1) / 2147483646;
+        return Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+      }
+
+      for (let i = days; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        if (d.getDay() === 0 || d.getDay() === 6) continue;
+        dates.push(d.toISOString().split("T")[0]);
+        const shock = cfg.drift + cfg.vol * randNormal();
+        price = Math.max(1, price * (1 + shock));
+        prices.push(Number(price.toFixed(2)));
+      }
+      return { dates, prices, currency: cfg.currency };
+    }
+
+    function calcSMA(arr, window) {
+      return arr.map((_, idx) => {
+        if (idx < window - 1) return null;
+        const slice = arr.slice(idx - window + 1, idx + 1);
+        const sum = slice.reduce((a, b) => a + b, 0);
+        return Number((sum / window).toFixed(2));
+      });
+    }
+
+    function calcRSI(prices, period = 14) {
+      if (prices.length <= period) return 50;
+      let gains = 0, losses = 0;
+      for (let i = prices.length - period; i < prices.length; i++) {
+        const diff = prices[i] - prices[i - 1];
+        if (diff > 0) gains += diff;
+        else losses -= diff;
+      }
+      const avgGain = gains / period;
+      const avgLoss = losses / period;
+      if (avgLoss === 0) return 100;
+      const rs = avgGain / avgLoss;
+      return 100 - (100 / (1 + rs));
+    }
+
+    function runRegressionForecast(dates, prices, horizon) {
+      const lookback = Math.min(45, prices.length);
+      const recentPrices = prices.slice(-lookback);
+      const n = recentPrices.length;
+
+      let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+      for (let i = 0; i < n; i++) {
+        sumX += i;
+        sumY += recentPrices[i];
+        sumXY += i * recentPrices[i];
+        sumXX += i * i;
+      }
+      const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+      const intercept = (sumY - slope * sumX) / n;
+
+      // Compute residual standard error
+      let sse = 0;
+      for (let i = 0; i < n; i++) {
+        const fitted = intercept + slope * i;
+        sse += Math.pow(recentPrices[i] - fitted, 2);
+      }
+      const rmse = Math.sqrt(sse / Math.max(1, n - 2));
+
+      const futureDates = [];
+      const futurePreds = [];
+      const upperBand = [];
+      const lowerBand = [];
+
+      let lastDate = new Date(dates[dates.length - 1]);
+      const lastActual = prices[prices.length - 1];
+      const lastFitted = intercept + slope * (n - 1);
+      const anchorOffset = lastActual - lastFitted;
+
+      for (let step = 1; step <= horizon; step++) {
+        lastDate.setDate(lastDate.getDate() + 1);
+        while (lastDate.getDay() === 0 || lastDate.getDay() === 6) {
+          lastDate.setDate(lastDate.getDate() + 1);
+        }
+        const dateStr = lastDate.toISOString().split("T")[0];
+        const pred = Number((intercept + slope * (n - 1 + step) + anchorOffset).toFixed(2));
+        const margin = Number((1.5 * rmse * Math.sqrt(1 + step / lookback)).toFixed(2));
+
+        futureDates.push(dateStr);
+        futurePreds.push(pred);
+        upperBand.push(Number((pred + margin).toFixed(2)));
+        lowerBand.push(Number((pred - margin).toFixed(2)));
+      }
+      return { futureDates, futurePreds, upperBand, lowerBand, rmse };
+    }
+
+    function updateDashboard() {
+      const symbol = document.getElementById("stockSelect").value;
+      const horizon = parseInt(document.getElementById("horizonSelect").value, 10);
+
+      const series = customData || generateHistoricalSeries(symbol, 130);
+      const { dates, prices, currency } = series;
+
+      const sma20 = calcSMA(prices, 20);
+      const sma50 = calcSMA(prices, 50);
+      const rsi = calcRSI(prices, 14);
+      const forecast = runRegressionForecast(dates, prices, horizon);
+
+      const latest = prices[prices.length - 1];
+      const prev = prices[prices.length - 2];
+      const diff = latest - prev;
+      const diffPct = (diff / prev) * 100;
+
+      const target = forecast.futurePreds[forecast.futurePreds.length - 1];
+      const targetPct = ((target - latest) / latest) * 100;
+
+      document.getElementById("kpiClose").textContent = `${currency}${latest.toLocaleString()}`;
+      const changeEl = document.getElementById("kpiChange");
+      changeEl.textContent = `${diff >= 0 ? "+" : ""}${diff.toFixed(2)} (${diffPct >= 0 ? "+" : ""}${diffPct.toFixed(2)}%)`;
+      changeEl.className = `kpi-sub ${diff >= 0 ? "pos" : "neg"}`;
+
+      document.getElementById("kpiTarget").textContent = `${currency}${target.toLocaleString()}`;
+      const targetEl = document.getElementById("kpiTargetPct");
+      targetEl.textContent = `${targetPct >= 0 ? "+" : ""}${targetPct.toFixed(2)}% over ${horizon}d`;
+      targetEl.className = `kpi-sub ${targetPct >= 0 ? "pos" : "neg"}`;
+
+      document.getElementById("kpiRsi").textContent = rsi.toFixed(1);
+      const rsiState = document.getElementById("kpiRsiState");
+      if (rsi > 70) { rsiState.textContent = "Overbought (>70)"; rsiState.className = "kpi-sub neg"; }
+      else if (rsi < 30) { rsiState.textContent = "Oversold (<30)"; rsiState.className = "kpi-sub pos"; }
+      else { rsiState.textContent = "Neutral Momentum"; rsiState.className = "kpi-sub"; }
+
+      const lastSma20 = sma20[sma20.length - 1];
+      const lastSma50 = sma50[sma50.length - 1];
+      const isBull = lastSma20 >= lastSma50;
+      document.getElementById("kpiSignal").innerHTML = `<span class="badge ${isBull ? 'badge-bull' : 'badge-bear'}">${isBull ? 'BULLISH TREND' : 'BEARISH TREND'}</span>`;
+      document.getElementById("kpiVol").textContent = `Model RMSE: ±${currency}${forecast.rmse.toFixed(2)}`;
+
+      // Populate Table
+      const tbody = document.getElementById("forecastTableBody");
+      tbody.innerHTML = "";
+      forecast.futureDates.forEach((d, i) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${d}</td>
+          <td style="font-weight:600; color: var(--purple);">${currency}${forecast.futurePreds[i].toLocaleString()}</td>
+          <td style="color: var(--muted);">${currency}${forecast.lowerBand[i].toLocaleString()} – ${currency}${forecast.upperBand[i].toLocaleString()}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // Render Chart
+      const allLabels = [...dates, ...forecast.futureDates];
+      const histPlot = [...prices, ...Array(forecast.futureDates.length).fill(null)];
+      const sma20Plot = [...sma20, ...Array(forecast.futureDates.length).fill(null)];
+
+      const forecastPlot = Array(prices.length - 1).fill(null);
+      forecastPlot.push(latest);
+      forecastPlot.push(...forecast.futurePreds);
+
+      const upperPlot = Array(prices.length - 1).fill(null);
+      upperPlot.push(latest);
+      upperPlot.push(...forecast.upperBand);
+
+      const lowerPlot = Array(prices.length - 1).fill(null);
+      lowerPlot.push(latest);
+      lowerPlot.push(...forecast.lowerBand);
+
+      const ctx = document.getElementById("priceChart").getContext("2d");
+      if (chartInstance) chartInstance.destroy();
+
+      chartInstance = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: allLabels,
+          datasets: [
+            {
+              label: "Historical Close",
+              data: histPlot,
+              borderColor: "#38bdf8",
+              borderWidth: 2,
+              pointRadius: 0,
+              tension: 0.15
+            },
+            {
+              label: "20-Day SMA",
+              data: sma20Plot,
+              borderColor: "#fbbf24",
+              borderWidth: 1.5,
+              borderDash: [4, 4],
+              pointRadius: 0,
+              tension: 0.15
+            },
+            {
+              label: "Regression Forecast",
+              data: forecastPlot,
+              borderColor: "#a855f7",
+              borderWidth: 2.5,
+              pointRadius: 2,
+              tension: 0.15
+            },
+            {
+              label: "Upper Confidence (+1.5σ)",
+              data: upperPlot,
+              borderColor: "rgba(168, 85, 247, 0.3)",
+              backgroundColor: "rgba(168, 85, 247, 0.12)",
+              borderWidth: 1,
+              pointRadius: 0,
+              fill: "+1"
+            },
+            {
+              label: "Lower Confidence (-1.5σ)",
+              data: lowerPlot,
+              borderColor: "rgba(168, 85, 247, 0.3)",
+              borderWidth: 1,
+              pointRadius: 0,
+              fill: false
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: { labels: { color: "#cbd5e1" } }
+          },
+          scales: {
+            x: { ticks: { color: "#94a3b8", maxTicksLimit: 10 }, grid: { color: "rgba(51, 65, 85, 0.4)" } },
+            y: { ticks: { color: "#94a3b8" }, grid: { color: "rgba(51, 65, 85, 0.4)" } }
+          }
+        }
+      });
+    }
+
+    document.getElementById("runBtn").addEventListener("click", updateDashboard);
+    document.getElementById("stockSelect").addEventListener("change", () => {
+      customData = null;
+      updateDashboard();
+    });
+    document.getElementById("horizonSelect").addEventListener("change", updateDashboard);
+
+    document.getElementById("csvUpload").addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const lines = evt.target.result.trim().split(/?
+/);
+        const dates = [];
+        const prices = [];
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(",");
+          if (cols.length >= 2) {
+            const d = cols[0].trim();
+            const p = parseFloat(cols[cols.length - 1]);
+            if (d && !isNaN(p)) {
+              dates.push(d);
+              prices.push(p);
+            }
+          }
+        }
+        if (prices.length >= 25) {
+          customData = { dates, prices, currency: "" };
+          updateDashboard();
+        } else {
+          alert("CSV must contain at least 25 rows with Date in the first column and Close Price in the last column.");
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    updateDashboard();
+  </script>
+</body>
+</html>
